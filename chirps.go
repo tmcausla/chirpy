@@ -1,0 +1,127 @@
+package main
+import (
+	"log"
+	"net/http"
+	"strings"
+	"slices"
+	"encoding/json"
+	"time"
+	"github.com/google/uuid"
+	"github.com/tmcausla/chirpy/internal/database"
+)
+
+type Chirp struct {
+	ID 		  uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+    Body   	  string 	`json:"body"`
+	UserID 	  uuid.UUID `json:"user_id"`
+}
+
+func (cfg * apiConfig) getChirpByID(w http.ResponseWriter, req *http.Request) {
+	chirpID := req.PathValue("chirpID")
+	id, err := uuid.Parse(chirpID)
+	if err != nil {
+		log.Printf("404 Not Found")
+		respondWithError(w, 404, "404 Not Found")
+		return
+	}
+
+	dbChirp, err := cfg.dbQueries.GetChirpByID(req.Context(), id)
+	if err != nil {
+		log.Printf("404 Not Found, %v\n", err)
+		respondWithError(w, 404, "404 Not Found")
+		return
+	}
+
+	chirp := Chirp{
+		ID: dbChirp.ID,
+		CreatedAt: dbChirp.CreatedAt,
+		UpdatedAt: dbChirp.UpdatedAt,
+		Body: dbChirp.Body,
+		UserID: dbChirp.UserID,
+	}
+
+	respondWithJSON(w, 200, chirp)
+}
+
+func (cfg *apiConfig) getChirps(w http.ResponseWriter, req *http.Request) {
+	dbChirps, err := cfg.dbQueries.GetChirps(req.Context())
+	if err != nil {
+		log.Printf("error fetching chirps: %v\n", err)
+		respondWithError(w, 500, "error fetching chirps")
+		return
+	}
+
+	chirps := make([]Chirp, len(dbChirps))
+	for i, ch := range dbChirps {
+		chirps[i] = Chirp{
+			ID: ch.ID, 
+			CreatedAt: ch.CreatedAt,
+			UpdatedAt: ch.UpdatedAt,
+			Body: ch.Body,
+			UserID: ch.UserID,
+		}
+	}
+
+	respondWithJSON(w, 200, chirps)
+}
+
+func (cfg *apiConfig) postChirp(w http.ResponseWriter, req *http.Request) {
+	newChirp := validateChirp(w, req)
+	dbChirp, err := cfg.dbQueries.CreateChirp(req.Context(), database.CreateChirpParams{
+		newChirp.Body,
+		newChirp.UserID,
+	})
+	if err != nil {
+		log.Printf("error creating chirp: %v\n", err)
+		respondWithError(w, 500, "error creating chirp")
+		return
+	}
+
+	chirp := Chirp{
+		ID: dbChirp.ID,
+		CreatedAt: dbChirp.CreatedAt,
+		UpdatedAt: dbChirp.UpdatedAt,
+		Body: dbChirp.Body,
+		UserID: dbChirp.UserID,
+	}
+	respondWithJSON(w, 201, chirp)
+}
+
+func validateChirp(w http.ResponseWriter, req *http.Request) Chirp {
+	type newChirp struct {
+		Body string `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
+	}
+
+    decoder := json.NewDecoder(req.Body)
+    chirp := newChirp{}
+    err := decoder.Decode(&chirp)
+    if err != nil {
+        log.Printf("error decoding request: %v\n", err)
+        respondWithError(w, 400, "error decoding request")
+        return Chirp{}
+    }
+
+    if len(chirp.Body) > 140 {
+        respondWithError(w, 400, "Chirp is too long")
+        return Chirp{}
+    }
+
+    return Chirp{
+		Body: chirp.Body,
+		UserID: chirp.UserID,
+	}
+}
+
+func cleanChirp(msg string) string {
+    badWords := []string{"kerfuffle", "sharbert", "fornax"}
+    arr := strings.Split(msg, " ")
+
+    for i := range arr {
+        if slices.Contains(badWords, strings.ToLower(arr[i])) {arr[i] = "****"}
+    }
+
+    return strings.Join(arr, " ")
+}
