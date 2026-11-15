@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"time"
 	"github.com/google/uuid"
+	"github.com/tmcausla/chirpy/internal/auth"
 	"github.com/tmcausla/chirpy/internal/database"
 )
 
@@ -34,15 +35,13 @@ func (cfg * apiConfig) getChirpByID(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	chirp := Chirp{
+	respondWithJSON(w, 200, Chirp{
 		ID: dbChirp.ID,
 		CreatedAt: dbChirp.CreatedAt,
 		UpdatedAt: dbChirp.UpdatedAt,
 		Body: dbChirp.Body,
 		UserID: dbChirp.UserID,
-	}
-
-	respondWithJSON(w, 200, chirp)
+	})
 }
 
 func (cfg *apiConfig) getChirps(w http.ResponseWriter, req *http.Request) {
@@ -69,9 +68,22 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, req *http.Request) {
 
 func (cfg *apiConfig) postChirp(w http.ResponseWriter, req *http.Request) {
 	newChirp := validateChirp(w, req)
+	authToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("error authenticating user: %v\n", err)
+		respondWithError(w, 401, "401 Unauthorized")
+		return
+	}
+	authID, err := auth.ValidateJWT(authToken, cfg.tokenSecret)
+	if err != nil {
+		log.Printf("error authenticating user: %v\n", err)
+		respondWithError(w, 401, "401 Unauthorized")
+		return
+	}
+
 	dbChirp, err := cfg.dbQueries.CreateChirp(req.Context(), database.CreateChirpParams{
-		newChirp.Body,
-		newChirp.UserID,
+		Body: newChirp.Body,
+		UserID: authID,
 	})
 	if err != nil {
 		log.Printf("error creating chirp: %v\n", err)
@@ -79,19 +91,18 @@ func (cfg *apiConfig) postChirp(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	chirp := Chirp{
+	respondWithJSON(w, 201, Chirp{
 		ID: dbChirp.ID,
 		CreatedAt: dbChirp.CreatedAt,
 		UpdatedAt: dbChirp.UpdatedAt,
 		Body: dbChirp.Body,
 		UserID: dbChirp.UserID,
-	}
-	respondWithJSON(w, 201, chirp)
+	})
 }
 
 func validateChirp(w http.ResponseWriter, req *http.Request) Chirp {
 	type newChirp struct {
-		Body string `json:"body"`
+		Body   string 	 `json:"body"`
 		UserID uuid.UUID `json:"user_id"`
 	}
 
@@ -110,7 +121,7 @@ func validateChirp(w http.ResponseWriter, req *http.Request) Chirp {
     }
 
     return Chirp{
-		Body: chirp.Body,
+		Body: cleanChirp(chirp.Body),
 		UserID: chirp.UserID,
 	}
 }

@@ -10,15 +10,17 @@ import (
 )
 
 type User struct {
-	ID 		  uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email 	  string 	`json:"email"`
+	ID 		  	 uuid.UUID `json:"id"`
+	CreatedAt 	 time.Time `json:"created_at"`
+	UpdatedAt 	 time.Time `json:"updated_at"`
+	Email 	  	 string    `json:"email"`
+	Token	  	 string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
 }
 
 type userLogin struct {
-	Password string `json:"password"`
-	Email 	 string `json:"email"`
+	Password 		 string `json:"password"`
+	Email 	 		 string `json:"email"`
 }
 
 func (cfg *apiConfig) createUser(w http.ResponseWriter, req *http.Request) {
@@ -48,13 +50,12 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	user := User{
+	respondWithJSON(w, 201, User{
 		ID: dbUser.ID,
 		CreatedAt: dbUser.CreatedAt,
 		UpdatedAt: dbUser.UpdatedAt,
 		Email: dbUser.Email,
-	}
-	respondWithJSON(w, 201, user)
+	})
 }
 
 func (cfg *apiConfig) login(w http.ResponseWriter, req *http.Request) {
@@ -62,30 +63,49 @@ func (cfg *apiConfig) login(w http.ResponseWriter, req *http.Request) {
 	loginUser := userLogin{}
 	err := decoder.Decode(&loginUser)
 	if err != nil {
-		log.Println("error logging in")
+		log.Printf("error logging in: %v\n", err)
 		respondWithError(w, 401, "Incorrect email or password")
 		return
 	}
 
 	dbUser, err := cfg.dbQueries.GetUserByEmail(req.Context(), loginUser.Email)
 	if err != nil {
-		log.Println("error logging in")
+		log.Printf("error logging in: %v\n", err)
 		respondWithError(w, 401, "Incorrect email or password")
 		return
 	}
 
 	match, err := auth.CheckPasswordHash(loginUser.Password, dbUser.HashedPassword)
 	if err != nil || !match {
-		log.Println("error logging in")
+		log.Printf("error logging in: %v\n", err)
 		respondWithError(w, 401, "Incorrect email or password")
 		return
 	}
 
-	user := User{
+	newToken, err := auth.MakeJWT(dbUser.ID, cfg.tokenSecret, time.Hour)
+	if err != nil {
+		log.Printf("error logging in: %v\n", err)
+		respondWithError(w, 500, "Internal Server Error")
+		return
+	}
+
+	newRefreshToken, err := cfg.dbQueries.CreateRefreshToken(req.Context(), database.CreateRefreshTokenParams{
+		Token: auth.MakeRefreshToken(),
+		UserID: dbUser.ID,	
+		ExpiresAt: time.Now().UTC().Add(60 * 24 * time.Hour),
+	})
+	if err != nil {
+		log.Printf("error making refresh token: %v", err)
+		respondWithError(w, 500, "error logging in")
+		return
+	}
+
+	respondWithJSON(w, 200, User{
 		ID: dbUser.ID,
 		CreatedAt: dbUser.CreatedAt,
 		UpdatedAt: dbUser.UpdatedAt,
 		Email: dbUser.Email,
-	}
-	respondWithJSON(w, 200, user)
+		Token: newToken,
+		RefreshToken: newRefreshToken.Token,
+	})
 }

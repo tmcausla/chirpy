@@ -15,6 +15,7 @@ func main() {
     godotenv.Load()
     dbURL := os.Getenv("DB_URL")
     plat := os.Getenv("PLATFORM")
+    tokSec := os.Getenv("TOKEN_SECRET")
 
     db, err := sql.Open("postgres", dbURL)
     if err != nil {
@@ -25,6 +26,7 @@ func main() {
     apiCfg := apiConfig{
         dbQueries: database.New(db),
         platform: plat,
+        tokenSecret: tokSec,
     }
 
     mux := http.NewServeMux()
@@ -37,6 +39,8 @@ func main() {
     mux.HandleFunc("GET /api/chirps", apiCfg.getChirps)
     mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.getChirpByID)
     mux.HandleFunc("POST /api/login", apiCfg.login)
+    mux.HandleFunc("POST /api/refresh", apiCfg.refresh)
+    mux.HandleFunc("POST /api/revoke", apiCfg.revoke)
 
     s := &http.Server{
         Addr: ":8080",
