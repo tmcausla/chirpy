@@ -14,6 +14,7 @@ type User struct {
 	CreatedAt 	 time.Time `json:"created_at"`
 	UpdatedAt 	 time.Time `json:"updated_at"`
 	Email 	  	 string    `json:"email"`
+	IsChirpyRed  bool	   `json:"is_chirpy_red"`
 	Token	  	 string    `json:"token"`
 	RefreshToken string    `json:"refresh_token"`
 }
@@ -55,6 +56,7 @@ func (cfg *apiConfig) createUser(w http.ResponseWriter, req *http.Request) {
 		CreatedAt: dbUser.CreatedAt,
 		UpdatedAt: dbUser.UpdatedAt,
 		Email: dbUser.Email,
+		IsChirpyRed: dbUser.IsChirpyRed,
 	})
 }
 
@@ -105,6 +107,7 @@ func (cfg *apiConfig) login(w http.ResponseWriter, req *http.Request) {
 		CreatedAt: dbUser.CreatedAt,
 		UpdatedAt: dbUser.UpdatedAt,
 		Email: dbUser.Email,
+		IsChirpyRed: dbUser.IsChirpyRed,
 		Token: newToken,
 		RefreshToken: newRefreshToken.Token,
 	})
@@ -156,5 +159,59 @@ func (cfg *apiConfig) updateUser(w http.ResponseWriter, req *http.Request) {
 		CreatedAt: dbUser.CreatedAt,
 		UpdatedAt: dbUser.UpdatedAt,
 		Email: dbUser.Email,
+		IsChirpyRed: dbUser.IsChirpyRed,
 	})
+}
+
+func (cfg *apiConfig) upgradeToRed(w http.ResponseWriter, req *http.Request) {
+	apiKey, err := auth.GetAPIKey(req.Header)
+	if err != nil {
+		log.Printf("error getting api key: %v\n", err)
+		respondWithError(w, 401, "401 Unauthorized")
+		return
+	}
+
+	if apiKey != cfg.polkaKey {
+		log.Println("api does not match polka")
+		respondWithError(w, 401, "401 Unauthorized")
+		return
+	}
+
+	type event struct {
+		Event string `json:"event"`
+		Data struct {
+			UserID string `json:"user_id"`
+		} `json:"data"`
+	}
+
+	decoder := json.NewDecoder(req.Body)
+	newEvent := event{}
+	err = decoder.Decode(&newEvent)
+	if err != nil {
+		log.Printf("error decoding event: %v\n", err)
+		respondWithError(w, 404, "404 Not found")
+		return
+	}
+
+	if newEvent.Event != "user.upgraded" {
+		log.Println("event is not an upgrade")
+		w.WriteHeader(204)
+		return
+	}
+
+	userID, err := uuid.Parse(newEvent.Data.UserID)
+	if err != nil {
+		log.Printf("user not found: %v\n", err)
+		respondWithError(w, 404, "404 Not Found")
+		return
+	}
+
+	_, err = cfg.dbQueries.UpgradeToRedByID(req.Context(), userID)
+	if err != nil {
+		log.Printf("error upgrading to chirpy red: %v\n", err)
+		respondWithError(w, 404, "404 Not Found")
+		return
+	}
+
+	w.WriteHeader(204)
 }

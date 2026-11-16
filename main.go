@@ -13,10 +13,8 @@ import (
 
 func main() {
     godotenv.Load()
-    dbURL := os.Getenv("DB_URL")
-    plat := os.Getenv("PLATFORM")
-    tokSec := os.Getenv("TOKEN_SECRET")
 
+    dbURL := os.Getenv("DB_URL")
     db, err := sql.Open("postgres", dbURL)
     if err != nil {
         log.Printf("error connecting to database: %v", err)
@@ -25,8 +23,9 @@ func main() {
 
     apiCfg := apiConfig{
         dbQueries: database.New(db),
-        platform: plat,
-        tokenSecret: tokSec,
+        platform: os.Getenv("PLATFORM"),
+        tokenSecret: os.Getenv("TOKEN_SECRET"),
+        polkaKey: os.Getenv("POLKA_KEY"),
     }
 
     mux := http.NewServeMux()
@@ -43,6 +42,7 @@ func main() {
     mux.HandleFunc("POST /api/revoke", apiCfg.revoke)
     mux.HandleFunc("PUT /api/users", apiCfg.updateUser)
     mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.deleteChirp)
+    mux.HandleFunc("POST /api/polka/webhooks", apiCfg.upgradeToRed)
 
     s := &http.Server{
         Addr: ":8080",
