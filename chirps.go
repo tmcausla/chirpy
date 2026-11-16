@@ -136,3 +136,48 @@ func cleanChirp(msg string) string {
 
     return strings.Join(arr, " ")
 }
+
+func (cfg *apiConfig) deleteChirp(w http.ResponseWriter, req *http.Request) {
+	authToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("error authenticating user: %v\n", err)
+		respondWithError(w, 401, "401 Unauthorized")
+		return
+	}
+	authID, err := auth.ValidateJWT(authToken, cfg.tokenSecret)
+	if err != nil {
+		log.Printf("error authenticating user: %v\n", err)
+		respondWithError(w, 401, "401 Unauthorized")
+		return
+	}
+
+	chirpID := req.PathValue("chirpID")
+	id, err := uuid.Parse(chirpID)
+	if err != nil {
+		log.Printf("404 Not Found")
+		respondWithError(w, 404, "404 Not Found")
+		return
+	}
+
+	dbChirp, err := cfg.dbQueries.GetChirpByID(req.Context(), id)
+	if err != nil {
+		log.Printf("404 Not Found, %v\n", err)
+		respondWithError(w, 404, "404 Not Found")
+		return
+	}
+
+	if dbChirp.UserID != authID {
+		log.Printf("user is not author of chirp: %v\n", err)
+		respondWithError(w, 403, "403 Unauthorized")
+		return
+	}
+
+	err = cfg.dbQueries.DeleteChirp(req.Context(), dbChirp.ID)
+	if err != nil {
+		log.Printf("error deleting chirp: %v\n", err)
+		respondWithError(w, 500, "Internal Server Error")
+		return
+	}
+
+	w.WriteHeader(204)
+}
