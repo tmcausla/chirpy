@@ -109,3 +109,52 @@ func (cfg *apiConfig) login(w http.ResponseWriter, req *http.Request) {
 		RefreshToken: newRefreshToken.Token,
 	})
 }
+
+func (cfg *apiConfig) updateUser(w http.ResponseWriter, req *http.Request) {
+	authToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("error authenticating user: %v\n", err)
+		respondWithError(w, 401, "401 Unauthorized")
+		return
+	}
+	authID, err := auth.ValidateJWT(authToken, cfg.tokenSecret)
+	if err != nil {
+		log.Printf("error authenticating user: %v\n", err)
+		respondWithError(w, 401, "401 Unauthorized")
+		return
+	}
+
+	decoder := json.NewDecoder(req.Body)
+	user := userLogin{}
+	err = decoder.Decode(&user)
+	if err != nil {
+		log.Printf("error decoding request: %v\n", err)
+        respondWithError(w, 400, "error decoding request")
+        return
+	}
+
+	hashPass, err := auth.HashPassword(user.Password)
+	if err != nil {
+		log.Printf("%v\n", err)
+		respondWithError(w, 500, "error hashing password")
+		return
+	}
+
+	dbUser, err := cfg.dbQueries.UpdateUser(req.Context(), database.UpdateUserParams{
+		ID: authID,
+		Email: user.Email,
+		HashedPassword: hashPass,
+	})
+	if err != nil {
+		log.Printf("error updating user: %v\n", err)
+		respondWithError(w, 500, "error updating user")
+		return
+	}
+
+	respondWithJSON(w, 200, User{
+		ID: dbUser.ID,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+		Email: dbUser.Email,
+	})
+}

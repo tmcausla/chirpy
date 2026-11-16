@@ -24,3 +24,9 @@ WHERE (
     AND refresh_tokens.revoked_at IS NULL
     AND refresh_tokens.expires_at > NOW()
 );
+
+-- name: UpdateUser :one
+UPDATE users
+SET email = $2, hashed_password = $3
+WHERE id = $1
+RETURNING id, created_at, updated_at, email;
