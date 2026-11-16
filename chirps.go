@@ -6,6 +6,7 @@ import (
 	"slices"
 	"encoding/json"
 	"time"
+	"sort"
 	"github.com/google/uuid"
 	"github.com/tmcausla/chirpy/internal/auth"
 	"github.com/tmcausla/chirpy/internal/database"
@@ -44,7 +45,68 @@ func (cfg * apiConfig) getChirpByID(w http.ResponseWriter, req *http.Request) {
 	})
 }
 
+func (cfg *apiConfig) getChirpsByAuthor(authorID uuid.UUID, req *http.Request) ([]Chirp, error) {
+	dbChirps, err := cfg.dbQueries.GetChirpsByAuthor(req.Context(), authorID)
+	if err != nil {
+		log.Printf("error fetching chirps: %v\n", err)
+		return []Chirp{}, err
+	}
+
+	chirps := make([]Chirp, len(dbChirps))
+	for i, ch := range dbChirps {
+		chirps[i] = Chirp{
+			ID: ch.ID, 
+			CreatedAt: ch.CreatedAt,
+			UpdatedAt: ch.UpdatedAt,
+			Body: ch.Body,
+			UserID: ch.UserID,
+		}
+	}
+	return chirps, nil
+}
+
+func sortChirps(chirps []Chirp, sortMethod string) []Chirp {
+	if sortMethod == "asc" {
+		sort.Slice(chirps, func(i, j int) bool {
+			return chirps[i].CreatedAt.Before(chirps[j].CreatedAt)
+		})
+		return chirps
+	} else if sortMethod == "desc" {
+		sort.Slice(chirps, func(i, j int) bool {
+			return chirps[j].CreatedAt.Before(chirps[i].CreatedAt)
+		})
+		return chirps
+	}
+	log.Printf("unknown sort method: %s\n", sortMethod)
+	return chirps
+}
+
 func (cfg *apiConfig) getChirps(w http.ResponseWriter, req *http.Request) {
+	sortMethod := "asc"
+	sortQuery := req.URL.Query().Get("sort")
+	if sortQuery != "" { sortMethod = sortQuery }
+
+	authorID := req.URL.Query().Get("author_id")
+	if authorID != "" {
+		id, err := uuid.Parse(authorID)
+		if err != nil {
+			log.Printf("error parsing author id: %v\n", err)
+			respondWithError(w, 404, "404 Not Found")
+			return
+		}
+
+		authorChirps, err := cfg.getChirpsByAuthor(id, req)
+		if err != nil {
+			log.Printf("error fetching chirps: %v\n", err)
+			respondWithError(w, 404, "404 Not Found")
+			return
+		}
+		authorChirps = sortChirps(authorChirps, sortMethod)
+
+		respondWithJSON(w, 200, authorChirps)
+		return
+	}
+
 	dbChirps, err := cfg.dbQueries.GetChirps(req.Context())
 	if err != nil {
 		log.Printf("error fetching chirps: %v\n", err)
@@ -62,6 +124,7 @@ func (cfg *apiConfig) getChirps(w http.ResponseWriter, req *http.Request) {
 			UserID: ch.UserID,
 		}
 	}
+	chirps = sortChirps(chirps, sortMethod)
 
 	respondWithJSON(w, 200, chirps)
 }
